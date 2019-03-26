@@ -1,0 +1,150 @@
+#Import packages
+library(ggplot2)
+
+#Set up layout for the interface
+ui <- fluidPage(
+  fluidRow(
+    #Browse... button
+    fileInput("file1", "Choose CSV File",
+              accept = c(
+                "text/csv",
+                "text/comma-separated-values,text/plain",
+                ".csv",".txt")
+    ),
+    #Enter save name
+    textInput("save", "Save File",""),
+    #Download button
+    downloadButton("downloadData", "Download"),
+    #Multiple points button
+    actionButton("exclude_toggle", "Multiple points"),
+    #Reset button
+    actionButton("exclude_reset", "Reset")
+  ),
+  fluidRow(
+    column(width = 12, class = "well",
+           h4("Underwater Fire - Left Plot Zooms in on Right Plot"),
+           fluidRow(
+             column(width = 6,
+                    #Left map
+                    plotOutput("plot2", height = 500,
+                               brush = brushOpts(
+                                 id = "plot2_brush",
+                                 resetOnNew = TRUE
+                               )
+                      )
+             ),
+             column(width = 6,
+                    #Right map
+                    plotOutput("plot3", height = 500,  
+                               # Equivalent to: click = clickOpts(id = "plot_click")
+                               click = "plot1_click",
+                               brush = brushOpts(
+                                 id = "plot1_brush")
+                    )
+                )
+           )
+      ) 
+  ),
+  fluidRow(
+    #Explanatory label for maps 
+    column(width = 8,
+           h4("Right Plot - Drag and Released Points"),
+           verbatimTextOutput("brush_info")
+    )
+  )
+)
+
+# -------------------------------------------------------------------
+#Connect commands and actions to ui
+server <- function(input, output) {
+  #Define reactive variable and input file
+  divedata <- reactive({
+    inFile <- input$file1
+    #Make sure input file isn't NULL
+    if (is.null(inFile))
+      return(NULL)
+    read.csv(inFile$datapath, header = TRUE)
+  })
+
+  # Connect points on plots (left and right)
+  ranges2 <- reactiveValues(x = NULL, y = NULL)
+  output$plot2 <- renderPlot({
+    dive <- divedata()
+    if (is.null(dive))return(NULL)
+    ggplot(dive, aes(Longitude, Latitude)) +
+      geom_point()
+  })
+  
+  #Plot right map
+  output$plot3 <- renderPlot({
+    dive <- divedata()
+    if (is.null(dive))
+      return(NULL)
+    # Plot the kept and excluded points as two separate data sets
+    keep    <- dive[ vals$keeprows, , drop = FALSE]
+    exclude <- dive[!vals$keeprows, , drop = FALSE]
+    #Change color of clicked points to red and zoom in on selected area of left map
+    ggplot(keep, aes(Longitude, Latitude)) + geom_point() +
+      geom_path(method = lm, fullrange = TRUE, color = "black") + 
+      geom_point(data = exclude, shape = 21, fill = NA, color = "red", alpha = 1) +
+      coord_cartesian(xlim = ranges2$x, ylim = ranges2$y, expand = TRUE)
+  })
+  #Show metadata for highlighted points of right map
+  output$brush_info <- renderPrint({
+    dive <- divedata()
+    if (is.null(dive))return(NULL)
+    brushedPoints(dive, input$plot1_brush)
+  })
+  
+  # When a double-click happens, check if there's a brush on the plot
+  # If so, zoom to the brush bounds; if not, reset the zoom
+  observe({
+    dive <- divedata()
+    if (is.null(dive))return(NULL)
+    brush <- input$plot2_brush
+    if (!is.null(brush)) {
+      ranges2$x <- c(brush$xmin, brush$xmax)
+      ranges2$y <- c(brush$ymin, brush$ymax)
+    } else {
+      ranges2$x <- NULL
+      ranges2$y <- NULL
+    }
+  })
+  
+  # Define variable for storing which rows have been excluded
+  vals <- reactiveValues(keeprows = NULL)
+  observeEvent(input$file1,{
+    vals$keeprows = rep(TRUE, nrow(divedata()))})
+  
+  # Toggle points that are clicked
+  observeEvent(input$plot1_click, {
+    dive <- divedata()
+    if (is.null(dive)) return(NULL)
+    res <- nearPoints(dive, input$plot1_click, allRows = TRUE)
+    vals$keeprows <- xor(vals$keeprows, res$selected)
+  })
+  
+  # Toggle points that are brushed, when button is clicked
+  observeEvent(input$exclude_toggle, {
+    dive <- divedata()
+    if (is.null(dive))return(NULL)
+    res <- brushedPoints(dive, input$plot1_brush, allRows = TRUE)
+    vals$keeprows <- xor(vals$keeprows, res$selected_)
+  })
+  
+  # Reset all points
+  observeEvent(input$exclude_reset, {
+    vals$keeprows <- rep(TRUE, nrow(divedata()))
+  })
+  
+  #Download data of kept points and save it as a csv with user entered name
+  output$downloadData <- downloadHandler(
+    filename = function(){ 
+      paste(input$save,".csv",sep = "")},
+    content = function(con){
+      write.csv(divedata()[ vals$keeprows, , drop = FALSE], con, row.names = FALSE)
+    }
+  )
+}
+
+shinyApp(ui, server)
