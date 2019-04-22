@@ -22,7 +22,7 @@ ui <- fluidPage(
   ),
   fluidRow(
     column(width = 12, class = "well",
-           h4("Underwater Fire - Left Plot Zooms in on Right Plot"),
+           h4("Left Plot Zooms in on Right Plot"),
            fluidRow(
              column(width = 6,
                     #Left map
@@ -111,7 +111,7 @@ server <- function(input, output) {
     }
   })
   
-  # Define variable for storing which rows have been excluded
+  # Define variable for storing which rows are to be kept
   vals <- reactiveValues(keeprows = NULL)
   observeEvent(input$file1,{
     vals$keeprows = rep(TRUE, nrow(divedata()))})
@@ -121,6 +121,7 @@ server <- function(input, output) {
     dive <- divedata()
     if (is.null(dive)) return(NULL)
     res <- nearPoints(dive, input$plot1_click, allRows = TRUE)
+    #Points that are selected are excluded from the vals variable and the vals variable is saved again without the selected points
     vals$keeprows <- xor(vals$keeprows, res$selected)
   })
   
@@ -129,11 +130,13 @@ server <- function(input, output) {
     dive <- divedata()
     if (is.null(dive))return(NULL)
     res <- brushedPoints(dive, input$plot1_brush, allRows = TRUE)
+    #Points that are brushed are excluded from the vals variable and the vals variable is saved again without the brushed points
     vals$keeprows <- xor(vals$keeprows, res$selected_)
   })
   
   # Reset all points
   observeEvent(input$exclude_reset, {
+    #If reset button is clicked, command replicates the values in divedata to put all excluded points back in vals
     vals$keeprows <- rep(TRUE, nrow(divedata()))
   })
   
